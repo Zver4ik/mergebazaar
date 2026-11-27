@@ -94,6 +94,16 @@
         } catch (e) { old(); }
       };
 
+      // Telegram's back arrow: the game shows it while a window is open and closes that window when pressed.
+      var backPresses = 0, backOn = false;
+      if (atLeast('6.1')) { try { tg.BackButton.onClick(function () { backPresses++; }); } catch (e) { } }
+      api.setBack = function (show) {
+        if (!atLeast('6.1') || show === backOn) return;
+        backOn = show;
+        try { if (show) tg.BackButton.show(); else tg.BackButton.hide(); } catch (e) { }
+      };
+      api.takeBack = function () { var n = backPresses; backPresses = 0; return n; };
+
       // ---------- Saves in Telegram's cloud ----------
       // Telegram keeps up to 1024 values of 4096 characters for each player. A save is cut into pieces and
       // written to slot "a" or "b" in turn; the small "mb_meta" value is written last, so a write that breaks
@@ -186,9 +196,9 @@
     var buildUrl = 'Build';
     var config = {
       arguments: [],
-      dataUrl: buildUrl + '/0a1f98122f79eec32909e254c5a69b95.data.unityweb',
-      frameworkUrl: buildUrl + '/ce6ba63caa87657e94cca745cc774c8f.framework.js.unityweb',
-      codeUrl: buildUrl + '/be17b24c97c4a9f3aa3ec6bdab7a3c15.wasm.unityweb',
+      dataUrl: buildUrl + '/5c250944daccc6ebb9c0a84529900604.data.unityweb',
+      frameworkUrl: buildUrl + '/7d3906ac9b235440a9b0a4955abbe1a0.framework.js.unityweb',
+      codeUrl: buildUrl + '/14a6d82e97ba4935fd23c93b03ee2e1f.wasm.unityweb',
       streamingAssetsUrl: 'StreamingAssets',
       companyName: "Sayro Games",
       productName: "Merge Bazaar",
@@ -199,7 +209,7 @@
     };
 
     var script = document.createElement('script');
-    script.src = buildUrl + '/955db91eb30f4107d90ce9463152875f.loader.js';
+    script.src = buildUrl + '/6da4bbeb76c0ebc77a573122b543ae8b.loader.js';
     script.onload = function () {
       createUnityInstance(canvas, config, function (progress) {
         fill.style.width = Math.round(100 * progress) + '%';
