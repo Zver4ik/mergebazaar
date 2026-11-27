@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#3b2414">
+  <title>Merge Bazaar</title>
+  <!-- Open the connections to the game's online services early, while the game downloads. -->
+  <link rel="preconnect" href="https://player-auth.services.api.unity.com" crossorigin>
+  <link rel="preconnect" href="https://cloud-code.services.api.unity.com" crossorigin>
+  <!-- Telegram's own script: lets the game talk to Telegram when it runs as a Mini App. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      background: #faf3e6; overscroll-behavior: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent; touch-action: none;
+    }
+    #unity-canvas {
+      position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+      display: block; background: #faf3e6; touch-action: none; outline: none;
+    }
+    #loading {
+      position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: #faf3e6; color: #6b3a1c;
+      font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      transition: opacity .35s;
+    }
+    #loading img { width: 148px; height: 148px; border-radius: 34px; box-shadow: 0 8px 24px rgba(74, 42, 24, .28); }
+    #title { margin-top: 20px; font-size: 28px; font-weight: 800; letter-spacing: .3px; }
+    #bar { margin-top: 22px; width: 230px; height: 14px; border-radius: 8px; background: #ead7b4; overflow: hidden;
+           box-shadow: inset 0 2px 3px rgba(0, 0, 0, .14); }
+    #fill { width: 0%; height: 100%; border-radius: 8px; background: linear-gradient(#ffc94d, #e8871e); transition: width .25s; }
+    #note { margin-top: 12px; font-size: 15px; opacity: .75; text-align: center; padding: 0 24px; }
+    #pct { margin-top: 8px; font-size: 14px; font-weight: 700; opacity: .7; min-height: 18px; }
+    #tip { position: fixed; left: 24px; right: 24px; bottom: max(28px, env(safe-area-inset-bottom)); text-align: center;
+           font-size: 14px; line-height: 1.35; opacity: 0; transition: opacity .5s; color: #7a4a25; }
+  </style>
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="loading">
+    <img src="TemplateData/icon.png" alt="">
+    <div id="title">Merge Bazaar</div>
+    <div id="bar"><div id="fill"></div></div>
+    <div id="pct"></div>
+    <div id="note"></div>
+    <div id="tip"></div>
+  </div>
+  <script>
+    // ---------- Telegram helper (the game calls it through Assets/Plugins/WebGL/TelegramBridge.jslib) ----------
+    window.MBTelegram = (function () {
+      var tg = (window.Telegram && window.Telegram.WebApp) || null;
+      var inside = !!(tg && tg.initData);
+      function atLeast(v) { try { return inside && tg.isVersionAtLeast(v); } catch (e) { return false; } }
+      function user() { try { return tg.initDataUnsafe.user || {}; } catch (e) { return {}; } }
+
+      var api = { inside: inside };
+
+      api.ready = function () {
+        if (!inside) return;
+        try { tg.ready(); } catch (e) { }
+        try { tg.expand(); } catch (e) { }
+        // Dragging items down must not close the game.
+        try { if (atLeast('7.7')) tg.disableVerticalSwipes(); } catch (e) { }
+        try { if (atLeast('6.1')) { tg.setHeaderColor('#3b2414'); tg.setBackgroundColor('#faf3e6'); } } catch (e) { }
+      };
+
+      api.language = function () { return (inside && user().language_code) || navigator.language || ''; };
+      api.startParam = function () { try { return (inside && tg.initDataUnsafe.start_param) || ''; } catch (e) { return ''; } };
+      api.userId = function () { var u = user(); return inside && u.id ? String(u.id) : ''; };
+      api.firstName = function () { return (inside && user().first_name) || ''; };
+
+      api.haptic = function (style) {
+        if (atLeast('6.1')) { try { tg.HapticFeedback.impactOccurred(style); return; } catch (e) { } }
+        if (navigator.vibrate) { try { navigator.vibrate(style === 'heavy' ? 40 : style === 'medium' ? 25 : 12); } catch (e) { } }
+      };
+
+      api.openLink = function (url) {
+        if (inside) {
+          try {
+            if (/^https:\/\/t\.me\//i.test(url)) tg.openTelegramLink(url); else tg.openLink(url);
+            return;
+          } catch (e) { }
+        }
+        window.open(url, '_blank');
+      };
+
+      api.copy = function (text) {
+        function old() {
+          try {
+            var t = document.createElement('textarea');
+            t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+            document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+          } catch (e) { }
+        }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(old);
+          else old();
+        } catch (e) { old(); }
+      };
+
+      // Telegram's back arrow: the game shows it while a window is open and closes that window when pressed.
+      var backPresses = 0, backOn = false;
+      if (atLeast('6.1')) { try { tg.BackButton.onClick(function () { backPresses++; }); } catch (e) { } }
+      api.setBack = function (show) {
+        if (!atLeast('6.1') || show === backOn) return;
+        backOn = show;
+        try { if (show) tg.BackButton.show(); else tg.BackButton.hide(); } catch (e) { }
+      };
+      api.takeBack = function () { var n = backPresses; backPresses = 0; return n; };
+
+      // Telegram's own "Add to home screen" dialog (Telegram 8.0+, where the phone supports it).
+      // Shown only when the icon is not on the home screen yet.
+      api.offerHome = function () {
+        if (!atLeast('8.0')) return;
+        try {
+          tg.checkHomeScreenStatus(function (status) {
+            if (status === 'missed') { try { tg.addToHomeScreen(); } catch (e) { } }
+          });
+        } catch (e) { }
+      };
+
+      // ---------- Saves in Telegram's cloud ----------
+      // Telegram keeps up to 1024 values of 4096 characters for each player. A save is cut into pieces and
+      // written to slot "a" or "b" in turn; the small "mb_meta" value is written last, so a write that breaks
+      // halfway never replaces the last good save.
+      var cs = (atLeast('6.9') && tg.CloudStorage) ? tg.CloudStorage : null;
+      var CHUNK = 4000;
+      api.cloud = { state: cs ? 0 : 2, data: '' };
+      var slot = 'b', pending = null, busy = false, last = 0, timer = 0;
+
+      if (cs) {
+        try {
+          cs.getItem('mb_meta', function (err, meta) {
+            if (err || !meta) { api.cloud.state = 2; return; }
+            try {
+              var m = JSON.parse(meta), keys = [];
+              for (var i = 0; i < m.n; i++) keys.push('mb_' + m.slot + i);
+              cs.getItems(keys, function (err2, values) {
+                if (err2 || !values) { api.cloud.state = 2; return; }
+                var s = '';
+                for (var k = 0; k < keys.length; k++) {
+                  if (typeof values[keys[k]] !== 'string') { api.cloud.state = 2; return; }
+                  s += values[keys[k]];
+                }
+                slot = m.slot;
+                api.cloud.data = s;
+                api.cloud.state = 1;
+              });
+            } catch (e) { api.cloud.state = 2; }
+          });
+        } catch (e) { api.cloud.state = 2; }
+        setTimeout(function () { if (api.cloud.state === 0) api.cloud.state = 2; }, 5000);   // never keep the game waiting
+      }
+
+      function cut(json) {
+        var parts = [];
+        for (var i = 0; i < json.length;) {
+          var end = Math.min(i + CHUNK, json.length);
+          var c = json.charCodeAt(end - 1);
+          if (end < json.length && c >= 0xD800 && c <= 0xDBFF) end--;   // don't split an emoji in two
+          parts.push(json.substring(i, end));
+          i = end;
+        }
+        return parts;
+      }
+
+      function write() {
+        if (!cs || busy || pending === null) return;
+        busy = true; last = Date.now();
+        var json = pending; pending = null;
+        var next = slot === 'a' ? 'b' : 'a', parts = cut(json), k = 0;
+        function retryLater() { busy = false; if (pending === null) pending = json; plan(false); }
+        function step(err) {
+          if (err) { retryLater(); return; }
+          if (k < parts.length) { var key = 'mb_' + next + k, val = parts[k++]; cs.setItem(key, val, function (e) { step(e); }); return; }
+          cs.setItem('mb_meta', JSON.stringify({ slot: next, n: parts.length, t: Date.now() }), function (e) {
+            if (e) { retryLater(); return; }
+            slot = next; busy = false;
+            if (pending !== null) plan(false);
+          });
+        }
+        try { step(null); } catch (e) { retryLater(); }
+      }
+
+      function plan(now) {
+        if (!cs || busy || pending === null) return;
+        clearTimeout(timer);
+        timer = setTimeout(write, now ? 0 : Math.max(0, 20000 - (Date.now() - last)));
+      }
+
+      api.save = function (json) { if (!cs) return; pending = json; plan(false); };
+
+      // Leaving the game: send the newest save right away.
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') plan(true); });
+      if (inside) { try { tg.onEvent('deactivated', function () { plan(true); }); } catch (e) { } }
+
+      return api;
+    })();
+    MBTelegram.ready();
+
+    // ---------- Loading screen: progress in %, a note for the first (slower) start, and game tips ----------
+    var LOADTEXT = (function () {
+      var all = {
+        en: { load: 'Loading the bazaar…', open: 'Opening the bazaar…', slow: 'The first start takes a little longer. Next time it opens fast.',
+              tips: ['Merge two equal items to make a better one.', 'VIP customers pay double and give energy.',
+                     'Invite a friend: you get 50 gems, they get 30.', 'Every country on the road has its own goods.',
+                     'Your progress is saved in Telegram.'] },
+        ru: { load: 'Загружаем базар…', open: 'Открываем базар…', slow: 'Первый запуск чуть дольше. В следующий раз откроется быстро.',
+              tips: ['Соединяй два одинаковых предмета — получишь лучше.', 'VIP-покупатели платят вдвое больше и дают энергию.',
+                     'Пригласи друга: тебе 50 кристаллов, ему 30.', 'В каждой стране на пути — свои товары.',
+                     'Прогресс сохраняется в Telegram.'] },
+        zh: { load: '集市加载中…', open: '正在打开集市…', slow: '第一次打开需要多一点时间，下次会很快。',
+              tips: ['合并两个相同的物品，得到更好的物品。', 'VIP顾客付双倍金币，还送体力。',
+                     '邀请好友：你得50宝石，好友得30宝石。', '路上每个国家都有自己的特产。', '你的进度保存在Telegram里。'] },
+        uz: { load: 'Bozor yuklanmoqda…', open: 'Bozor ochilmoqda…', slow: 'Birinchi ochilish biroz uzoqroq. Keyingi safar tez ochiladi.',
+              tips: ['Ikkita bir xil buyumni birlashtiring — yaxshirogʻi chiqadi.', 'VIP xaridorlar ikki baravar koʻp toʻlaydi va energiya beradi.',
+                     'Doʻstingizni taklif qiling: sizga 50 olmos, unga 30.', 'Yoʻldagi har bir mamlakatning oʻz mollari bor.',
+                     'Natijangiz Telegramda saqlanadi.'] },
+        tg: { load: 'Бозор бор мешавад…', open: 'Бозор кушода мешавад…', slow: 'Бори аввал каме дарозтар. Дафъаи дигар зуд мекушояд.',
+              tips: ['Ду ашёи якхеларо якҷоя кун — беҳтараш ба даст меояд.', 'Харидорони VIP ду баробар зиёд медиҳанд ва қувват мебахшанд.',
+                     'Дӯстатро даъват кун: ба ту 50 алмос, ба ӯ 30.', 'Дар роҳ ҳар кишвар моли худашро дорад.',
+                     'Пешрафти ту дар Telegram нигоҳ дошта мешавад.'] }
+      };
+      var lang = (MBTelegram.language() || navigator.language || '').toLowerCase().substring(0, 2);
+      return all[lang] || all.en;
+    })();
+    document.getElementById('note').textContent = LOADTEXT.load;
+    var tipTimer = (function () {
+      var tip = document.getElementById('tip'), i = Math.floor(Math.random() * LOADTEXT.tips.length);
+      function show() { tip.style.opacity = '0'; setTimeout(function () { tip.textContent = LOADTEXT.tips[i++ % LOADTEXT.tips.length]; tip.style.opacity = '.85'; }, 450); }
+      setTimeout(show, 1500);
+      return setInterval(show, 5000);
+    })();
+    var slowTimer = setTimeout(function () { document.getElementById('note').textContent = LOADTEXT.slow; }, 9000);
+
+    var canvas = document.querySelector('#unity-canvas');
+    var fill = document.querySelector('#fill');
+    var loading = document.querySelector('#loading');
+    var buildUrl = 'Build';
+    var config = {
+      arguments: [],
+      dataUrl: buildUrl + '/a00a553d3998cd339bd69c07f08b1e61.data.unityweb',
+      frameworkUrl: buildUrl + '/8fc77c354913e74b3b87064f2e087da9.framework.js.unityweb',
+      codeUrl: buildUrl + '/6519e82354cd08f660accdf20e326f74.wasm.unityweb',
+      streamingAssetsUrl: 'StreamingAssets',
+      companyName: "Sayro Games",
+      productName: "Merge Bazaar",
+      productVersion: "1.0.0",
+      // Sharp enough on phones, without drawing 3x more pixels than needed.
+      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      showBanner: function (msg, type) { if (type === 'error') document.getElementById('note').textContent = msg; console.log(msg); }
+    };
+
+    var script = document.createElement('script');
+    script.src = buildUrl + '/22016fd2a385ce2aa704ff11457fe935.loader.js';
+    script.onload = function () {
+      createUnityInstance(canvas, config, function (progress) {
+        fill.style.width = Math.round(100 * progress) + '%';
+        // Unity reports about 90% when the download is done; the rest is starting the game.
+        document.getElementById('pct').textContent = progress < 0.9 ? Math.round(100 * progress / 0.9) + '%' : '';
+        if (progress >= 0.9) { clearTimeout(slowTimer); document.getElementById('note').textContent = LOADTEXT.open; }
+      }).then(function () {
+        clearInterval(tipTimer); clearTimeout(slowTimer);
+        loading.style.opacity = '0';
+        setTimeout(function () { loading.style.display = 'none'; }, 400);
+      }).catch(function (message) {
+        document.getElementById('note').textContent = 'Could not start the game: ' + message;
+      });
+    };
+    document.body.appendChild(script);
+  </script>
+</body>
+</html>
