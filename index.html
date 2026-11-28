@@ -50,6 +50,10 @@
     <div id="tip"></div>
   </div>
   <script>
+    // Address of the bot server (Cloudflare Worker) that sells gem packs for Telegram Stars.
+    // Empty = the shop shows "Soon" for gem packs. Set it once the worker is live, e.g. 'https://mergebazaar-bot.NAME.workers.dev'.
+    window.MB_STARS_API = window.MB_STARS_API || '';
+
     // ---------- Telegram helper (the game calls it through Assets/Plugins/WebGL/TelegramBridge.jslib) ----------
     window.MBTelegram = (function () {
       var tg = (window.Telegram && window.Telegram.WebApp) || null;
@@ -194,6 +198,30 @@
 
       api.save = function (json) { if (!cs) return; pending = json; plan(false); };
 
+      // ----- Telegram Stars: gem packs. Answers go back to the game as MergeGame.OnStars(json). -----
+      function toGame(obj) { try { if (window.mbUnity) window.mbUnity.SendMessage('MergeGame', 'OnStars', JSON.stringify(obj)); } catch (e) { } }
+      function starsBase() { return String(window.MB_STARS_API || '').replace(/\/+$/, ''); }
+      function post(path, body, done) {
+        var b = starsBase();
+        // text/plain keeps this a "simple" request (no CORS pre-flight).
+        fetch(b + path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { done(j || { ok: false, error: 'empty' }); }, function () { done({ ok: false, error: 'network' }); });
+      }
+      api.stars = {
+        enabled: function () { return !!(starsBase() && inside && tg.openInvoice && atLeast('6.1')); },
+        buy: function (pack) {
+          post('/api/invoice', { initData: tg.initData, pack: pack }, function (j) {
+            if (!j.ok || !j.url) { toGame({ kind: 'error', error: j.error || 'invoice' }); return; }
+            try {
+              tg.openInvoice(j.url, function (status) { toGame({ kind: 'status', status: status, pack: pack }); });
+            } catch (e) { toGame({ kind: 'error', error: 'open' }); }
+          });
+        },
+        claim: function () { post('/api/claim', { initData: tg.initData }, function (j) { toGame({ kind: 'claim', ok: !!j.ok, items: j.items || [] }); }); },
+        ack: function (ids) { post('/api/ack', { initData: tg.initData, ids: ids }, function () { }); }
+      };
+
       // Leaving the game: send the newest save right away.
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') plan(true); });
       if (inside) { try { tg.onEvent('deactivated', function () { plan(true); }); } catch (e) { } }
@@ -243,9 +271,9 @@
     var buildUrl = 'Build';
     var config = {
       arguments: [],
-      dataUrl: buildUrl + '/d81a1fba5b70ae29299ab3d8579de574.data.unityweb',
-      frameworkUrl: buildUrl + '/8fc77c354913e74b3b87064f2e087da9.framework.js.unityweb',
-      codeUrl: buildUrl + '/0f20fa811aede685c0bc4fd00715ab85.wasm.unityweb',
+      dataUrl: buildUrl + '/e088c5434277dd1c874864e5b2e2a4a0.data.unityweb',
+      frameworkUrl: buildUrl + '/e1530abfe07abf089a73916cc464bab3.framework.js.unityweb',
+      codeUrl: buildUrl + '/892f0c5bc220a81dfbf54a747a00e461.wasm.unityweb',
       streamingAssetsUrl: 'StreamingAssets',
       companyName: "Sayro Games",
       productName: "Merge Bazaar",
@@ -256,14 +284,15 @@
     };
 
     var script = document.createElement('script');
-    script.src = buildUrl + '/eb44fd0550d60a1a1a7d259e5fa7b126.loader.js';
+    script.src = buildUrl + '/a326b80526260086f225442f7ece2abe.loader.js';
     script.onload = function () {
       createUnityInstance(canvas, config, function (progress) {
         fill.style.width = Math.round(100 * progress) + '%';
         // Unity reports about 90% when the download is done; the rest is starting the game.
         document.getElementById('pct').textContent = progress < 0.9 ? Math.round(100 * progress / 0.9) + '%' : '';
         if (progress >= 0.9) { clearTimeout(slowTimer); document.getElementById('note').textContent = LOADTEXT.open; }
-      }).then(function () {
+      }).then(function (instance) {
+        window.mbUnity = instance;
         clearInterval(tipTimer); clearTimeout(slowTimer);
         loading.style.opacity = '0';
         setTimeout(function () { loading.style.display = 'none'; }, 400);
