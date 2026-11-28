@@ -53,6 +53,8 @@
     // Address of the bot server (Cloudflare Worker) that sells gem packs for Telegram Stars.
     // Empty = the shop shows "Soon" for gem packs. Set it once the worker is live, e.g. 'https://mergebazaar-bot.NAME.workers.dev'.
     window.MB_STARS_API = window.MB_STARS_API || 'https://mergebazaar-bot.pioneerhr6.workers.dev';
+    // Adsgram rewarded video: the block ID from partner.adsgram.ai. Empty = no video ads.
+    window.MB_ADS_BLOCK = window.MB_ADS_BLOCK || '';
 
     // ---------- Telegram helper (the game calls it through Assets/Plugins/WebGL/TelegramBridge.jslib) ----------
     window.MBTelegram = (function () {
@@ -222,6 +224,49 @@
         ack: function (ids) { post('/api/ack', { initData: tg.initData, ids: ids }, function () { }); }
       };
 
+      // ----- Reminder messages from the bot. The game keeps its plan here; it goes to the server when the
+      // player leaves (hidden), and an empty plan goes when he comes back (cancels what was planned). -----
+      var remindPlan = null;
+      function sendPlan(leaving) {
+        if (!remindPlan || !starsBase() || !inside) return;
+        var body = { initData: tg.initData, on: !!remindPlan.on, tz: -new Date().getTimezoneOffset(), items: leaving ? (remindPlan.items || []) : [] };
+        try { fetch(starsBase() + '/api/remind', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body), keepalive: true }); } catch (e) { }
+      }
+      api.remind = {
+        plan: function (json) {
+          var first = remindPlan === null;
+          try { remindPlan = JSON.parse(json); } catch (e) { return; }
+          if (first) sendPlan(false);   // the player is here: cancel messages planned last time
+        },
+        askWrite: function () {
+          if (!inside || !tg.requestWriteAccess || !atLeast('6.9')) { toGame({ kind: 'write', ok: inside }); return; }
+          try { tg.requestWriteAccess(function (allowed) { toGame({ kind: 'write', ok: !!allowed }); }); } catch (e) { toGame({ kind: 'write', ok: false }); }
+        }
+      };
+      // ----- Rewarded video ads (Adsgram). The script loads only when a block ID is set. -----
+      var adCtl = null;
+      function adsBlock() { return String(window.MB_ADS_BLOCK || ''); }
+      if (adsBlock() && inside) {
+        var sad = document.createElement('script');
+        sad.src = 'https://sad.adsgram.ai/js/sad.min.js';
+        sad.async = true;
+        document.head.appendChild(sad);
+      }
+      api.ads = {
+        enabled: function () { return !!(adsBlock() && inside); },
+        show: function () {
+          try {
+            if (!adCtl) adCtl = window.Adsgram.init({ blockId: adsBlock() });
+            adCtl.show()
+              .then(function (r) { toGame({ kind: 'ad', ok: !!(r && r.done) }); })
+              .catch(function (r) { toGame({ kind: 'ad', ok: false, error: (r && r.error) ? (r.description || 'error') : '' }); });
+          } catch (e) { toGame({ kind: 'ad', ok: false, error: 'load' }); }
+        }
+      };
+
+      document.addEventListener('visibilitychange', function () { sendPlan(document.visibilityState === 'hidden'); });
+      if (inside) { try { tg.onEvent('deactivated', function () { sendPlan(true); }); tg.onEvent('activated', function () { sendPlan(false); }); } catch (e) { } }
+
       // Leaving the game: send the newest save right away.
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') plan(true); });
       if (inside) { try { tg.onEvent('deactivated', function () { plan(true); }); } catch (e) { } }
@@ -271,9 +316,9 @@
     var buildUrl = 'Build';
     var config = {
       arguments: [],
-      dataUrl: buildUrl + '/e088c5434277dd1c874864e5b2e2a4a0.data.unityweb',
-      frameworkUrl: buildUrl + '/e1530abfe07abf089a73916cc464bab3.framework.js.unityweb',
-      codeUrl: buildUrl + '/892f0c5bc220a81dfbf54a747a00e461.wasm.unityweb',
+      dataUrl: buildUrl + '/63739b06b0e0dec92560c162c76c38c0.data.unityweb',
+      frameworkUrl: buildUrl + '/56d8c7e62c7fc7b89004d9c24aa73361.framework.js.unityweb',
+      codeUrl: buildUrl + '/9c511600072215a47108c7cd84fc201b.wasm.unityweb',
       streamingAssetsUrl: 'StreamingAssets',
       companyName: "Sayro Games",
       productName: "Merge Bazaar",
@@ -284,7 +329,7 @@
     };
 
     var script = document.createElement('script');
-    script.src = buildUrl + '/a326b80526260086f225442f7ece2abe.loader.js';
+    script.src = buildUrl + '/7ff16f4cf6a5cfe66882020c5a36500c.loader.js';
     script.onload = function () {
       createUnityInstance(canvas, config, function (progress) {
         fill.style.width = Math.round(100 * progress) + '%';
