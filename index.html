@@ -52,7 +52,7 @@
   <script>
     // Address of the bot server (Cloudflare Worker) that sells gem packs for Telegram Stars.
     // Empty = the shop shows "Soon" for gem packs. Set it once the worker is live, e.g. 'https://mergebazaar-bot.NAME.workers.dev'.
-    window.MB_STARS_API = window.MB_STARS_API || '';
+    window.MB_STARS_API = window.MB_STARS_API || 'https://mergebazaar-bot.pioneerhr6.workers.dev';
 
     // ---------- Telegram helper (the game calls it through Assets/Plugins/WebGL/TelegramBridge.jslib) ----------
     window.MBTelegram = (function () {
