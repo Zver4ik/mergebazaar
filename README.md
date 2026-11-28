@@ -1,6 +1,6 @@
 # Merge Bazaar — web version
 
-The Telegram Mini App build of **Merge Bazaar**, a Silk Road merge game by Sayro Games.
+The Telegram Mini App build of **Merge Bazaar**, a Silk Road merge game by Usayd Games.
 
 Play in Telegram: https://t.me/Sayrogamesbot/mergebazaar
 
